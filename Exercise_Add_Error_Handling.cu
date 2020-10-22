@@ -1,5 +1,4 @@
 //  Exercise: Add Error Handling
-
 #include <stdio.h>
 
 void init(int *a, int N)
@@ -52,8 +51,21 @@ int main()
 
   size_t threads_per_block = 2048;
   size_t number_of_blocks = 32;
+  
+  cudaError_t errorLast, errorSync;
 
   doubleElements<<<number_of_blocks, threads_per_block>>>(a, N);
+  
+  errorLast = cudaGetLastError();
+  errorSync = cudaDeviceSynchronize();
+
+  /*
+   * Print errors should they exist.
+   */
+
+  if (errorLast != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(errorLast));
+  if (errorSync != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(errorSync));
+  
   cudaDeviceSynchronize();
 
   bool areDoubled = checkElementsAreDoubled(a, N);
