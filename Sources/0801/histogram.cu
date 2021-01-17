@@ -7,7 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 4096
+#define MAX_BINS 16
 //Comparing the multi and single threaded histograms
 bool compare(unsigned int *one, unsigned int *two, int size)
 {
