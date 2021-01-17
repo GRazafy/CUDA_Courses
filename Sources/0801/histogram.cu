@@ -66,7 +66,7 @@ bool compareHistograms(unsigned int *firstTab, unsigned int *secondTab, int tabS
 {
     for(int i = 0; i<tabSize; i++)
     {
-        if (firstTab[p] != secondTab[p])
+        if (firstTab[i] != secondTab[i])
         {
             return false;
         }
@@ -89,7 +89,7 @@ void printResult(unsigned int *res, int threadNb, unsigned int Size )
         }
 
         if (i == Size - 1){
-            print("]\n");
+            printf("]\n");
         }
     }
 }
