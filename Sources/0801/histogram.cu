@@ -252,7 +252,7 @@ int main(int argc, char **argv)
     printf("nb thread: %d \n", nbThread);
     //my number of block depends of the input because if the nb of thread is <1024 there will be only one blocks, in contrary if it is
     // > 1024 then the number of blocks will depend of the input with the maximum size of 18000
-    int nbBlock =  min(((int)input_dataSize/nbThread),18000);
+    int nbBlock =  min(((int)input_dataSize/nbThread),100*smCount);
 
     if (nbBlock == 0) nbBlock = 1;
     printf("nbblock: %d \n", nbBlock);
