@@ -225,13 +225,13 @@ int main(int argc, char **argv)
 
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
+    int smCount;
 
     // retrieve device
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&cudaprop, dev);
 
-    smCount = prop.multiProcessorCount;
-    warpSize = prop.warpSize;
+    smCount = cudaprop.multiProcessorCount;
     
     //Retrieving parameters
     if (checkCmdLineFlag(argc, (const char **)argv, "size"))
