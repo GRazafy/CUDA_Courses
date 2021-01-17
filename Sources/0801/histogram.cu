@@ -51,9 +51,9 @@ __global__ static void histogram(unsigned int *input, unsigned int *histo, unsig
     
     for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-        if(input[counterFill] < MAX_BINS_SIZE){
+        //if(input[counterFill] < MAX_BINS_SIZE){
             atomicAdd(&sharedHist[input[counterFill]], 1);
-        }
+        //}
 
     }
     __syncthreads();
