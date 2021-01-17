@@ -7,7 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 16
+#define MAX_BINS 4096
 
 
 
@@ -212,7 +212,7 @@ int main(int argc, char **argv)
 {
     int print = 0;
     unsigned int binSize = MAX_BINS;
-    unsigned long long ds = 256;
+    unsigned long long bins_max_size = 256;
 
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
