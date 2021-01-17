@@ -7,7 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 16 
+#define MAX_BINS 4096
 #define MAX_BINS_SIZE 256
 
 
@@ -51,9 +51,9 @@ __global__ static void histogram(unsigned int *input, unsigned int *histo, unsig
     
     for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-       // if(sharedHist[input[counterFill]] < MAX_BINS_SIZE){
+        if(input[counterFill] < MAX_BINS_SIZE){
             atomicAdd(&sharedHist[input[counterFill]], 1);
-       // }
+        }
 
     }
     __syncthreads();
@@ -120,17 +120,16 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int showData, int thre
 
     unsigned int *histo = NULL;
     unsigned int *histo_single = NULL;
-    unsigned int *d_histo = NULL;
+    unsigned int *device_histo = NULL;
     unsigned int *data = NULL;
-    unsigned int *d_data = NULL;
-    cudaEvent_t start;
-    cudaEvent_t start_single;
-    cudaEvent_t stop;
-    cudaEvent_t stop_single;
+    unsigned int *device_data = NULL;
+
 
     data = (unsigned int *)malloc(dataSize * sizeof(unsigned int));
     histo = (unsigned int *)malloc(binSize * sizeof(unsigned int));
     histo_single = (unsigned int *)malloc(binSize * sizeof(unsigned int));
+
+
     //generating some data
     srand(time(NULL));
     for (int i = 0; i < dataSize; i++){
@@ -144,45 +143,50 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int showData, int thre
         printData(data, dataSize);
     }
 
-    checkCudaErrors(cudaMalloc((void **)&d_histo, sizeof(unsigned int) * binSize));
-    checkCudaErrors(cudaMalloc((void **)&d_data, sizeof(unsigned int) * dataSize));
+    checkCudaErrors(cudaMalloc((void **)&device_histo, sizeof(unsigned int) * binSize));
+    checkCudaErrors(cudaMalloc((void **)&device_data, sizeof(unsigned int) * dataSize));
 
-    checkCudaErrors(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(device_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
 
-    checkCudaErrors(cudaEventCreate(&start));
-    checkCudaErrors(cudaEventCreate(&stop));
-    checkCudaErrors(cudaEventRecord(start, NULL));
+    //event init
+    cudaEvent_t mulTStart;
+    cudaEvent_t singTStart;
+    cudaEvent_t mulTStop;
+    cudaEvent_t singTStop;
+    checkCudaErrors(cudaEventCreate(&mulTStart));
+    checkCudaErrors(cudaEventCreate(&mulTStop));
+    checkCudaErrors(cudaEventRecord(mulTStart, NULL));
 
     //lauching the kernel with multiple thread
-    histogram<<<blockCount, threadNb,sizeof(unsigned int) * binSize>>>(d_data, d_histo, dataSize, binSize);
+    histogram<<<blockCount, threadNb,sizeof(unsigned int) * binSize>>>(device_data, device_histo, dataSize, binSize);
     cudaDeviceSynchronize();
 
     printf("End of the kernel, fetching the results :\n");
-    checkCudaErrors(cudaMemcpy(histo, d_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(histo, device_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
     //creatiion of events for time measuring
-    checkCudaErrors(cudaEventRecord(stop, NULL));
-    checkCudaErrors(cudaEventSynchronize(stop));
+    checkCudaErrors(cudaEventRecord(mulTStop, NULL));
+    checkCudaErrors(cudaEventSynchronize(mulTStop));
 
-    checkCudaErrors(cudaEventCreate(&start_single));
-    checkCudaErrors(cudaEventCreate(&stop_single));
-    checkCudaErrors(cudaEventRecord(start_single, NULL));
+    checkCudaErrors(cudaEventCreate(&singTStart));
+    checkCudaErrors(cudaEventCreate(&singTStop));
+    checkCudaErrors(cudaEventRecord(singTStart, NULL));
 
     //cleaning the histogram
-    cleanHisto<<<1, threadNb>>>(d_histo, binSize);
+    cleanHisto<<<1, threadNb>>>(device_histo, binSize);
     cudaDeviceSynchronize();
 
     //lauching the kernel for a single thread for comparaison
-    histogram<<<1, 1,sizeof(unsigned int) * binSize>>>(d_data, d_histo, dataSize, binSize);
+    histogram<<<1, 1,sizeof(unsigned int) * binSize>>>(device_data, device_histo, dataSize, binSize);
     cudaDeviceSynchronize();
 
-    checkCudaErrors(cudaMemcpy(histo_single, d_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
-    checkCudaErrors(cudaEventRecord(stop_single, NULL));
-    checkCudaErrors(cudaEventSynchronize(stop_single));
+    checkCudaErrors(cudaMemcpy(histo_single, device_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaEventRecord(singTStop, NULL));
+    checkCudaErrors(cudaEventSynchronize(singTStop));
     float msecTotal = 0.0f;
     float msecTotal_single = 0.0f;
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal_single, start_single, stop_single));
+    checkCudaErrors(cudaEventElapsedTime(&msecTotal, mulTStart, mulTStop));
+    checkCudaErrors(cudaEventElapsedTime(&msecTotal_single, singTStart, singTStop));
     double gigaFlops = (dataSize * 1.0e-9f) / (msecTotal / 1000.0f);
     double gigaFlops_single = (dataSize * 1.0e-9f) / (msecTotal_single / 1000.0f);
 
@@ -205,8 +209,8 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int showData, int thre
     // Print performances
     printf("%d threads :\nCuda processing time = %.3fms, \n Perf = %.3f Gflops\n",threadNb, msecTotal, gigaFlops);
     printf("1 thread :\nCuda processing time = %.3fms, \n Perf = %.3f Gflops\n", msecTotal_single, gigaFlops_single);
-    checkCudaErrors(cudaFree(d_data));
-    checkCudaErrors(cudaFree(d_histo));
+    checkCudaErrors(cudaFree(device_data));
+    checkCudaErrors(cudaFree(device_histo));
     free(histo);
     free(histo_single);
     free(data);
@@ -219,7 +223,6 @@ int main(int argc, char **argv)
     unsigned int binSize = MAX_BINS;
     unsigned long long input_dataSize = 0;
 
-    int smCount;
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
 
@@ -227,7 +230,8 @@ int main(int argc, char **argv)
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&cudaprop, dev);
 
-    smCount = cudaprop.multiProcessorCount;
+    smCount = prop.multiProcessorCount;
+    warpSize = prop.warpSize;
     
     //Retrieving parameters
     if (checkCmdLineFlag(argc, (const char **)argv, "size"))
