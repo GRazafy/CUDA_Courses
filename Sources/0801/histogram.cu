@@ -7,23 +7,17 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 4096
-//Comparing the multi and single threaded histograms
-bool compare(unsigned int *one, unsigned int *two, int size)
+#define MAX_BINS 16
+
+
+
+/*****************************/
+/*    printData is used for
+/*    printing the generated data   
+/*****************************/
+void printData(unsigned int *data, unsigned int dataSize)
 {
-    for(int p = 0; p<size; p++)
-    {
-        if (one[p] != two[p])
-        {
-            return false;
-        }
-    }
-    return true;
-}
-//Printing the datas if the required parameter is set to 1
-void Data(unsigned int *data, unsigned int dataSize)
-{
-    printf("Data generated : ");
+    printf("Data generated : [");
     for (int a = 0; a < dataSize; a++)
     {
         printf("%d", data[a]);
@@ -38,47 +32,74 @@ void Data(unsigned int *data, unsigned int dataSize)
     }
 }
 
-__global__
-static void histogram(unsigned int *input, unsigned int *histo, unsigned int dataSize, unsigned int binSize)
+
+/*****************************/
+/*    histogram is the main kernel
+/*    used to calculate the histogram generated   
+/*****************************/
+__global__ static void histogram(unsigned int *input, unsigned int *histo, unsigned int dataSize, unsigned int binSize)
 {
     int th = blockIdx.x * blockDim.x + threadIdx.x;
-//Using extern shared and setting its size when calling the kernel
-    extern __shared__ int local_histogram[];
-//init histo
-    for (int y = threadIdx.x; y < binSize; y += blockDim.x)
+    extern __shared__ int sharedHist[];
+    for (int i = threadIdx.x; i < binSize; i += blockDim.x)
     {
-        local_histogram[y] = 0;
+        sharedHist[i] = 0;
     }
     __syncthreads();
-//Filling the results on the histogram
-    for (int i = th; i < dataSize; i += blockDim.x * gridDim.x)
+    
+    for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-        //Atomic add is used as 2 datas can have the same number, to not have issues if they add 1 at the same time
-        atomicAdd(&local_histogram[input[i]], 1);
+        atomicAdd(&sharedHist[input[counterFill]], 1);
     }
     __syncthreads();
-        //add / blocks
-    for (int z = threadIdx.x; z < binSize; z += blockDim.x)
+    
+
+    for (int j = threadIdx.x; j < binSize; j += blockDim.x)
     {
-        atomicAdd(&histo[z], local_histogram[z]);
+        atomicAdd(&histo[j], sharedHist[j]);
     }
 
 }
-//Printing the results
-void result(unsigned int *res, int threadNb, unsigned int Size )
+
+/*****************************/
+/*    compareHistograms is used for
+/*    comparing the performance of the 2 methods single and multi thread    
+/*****************************/
+bool compareHistograms(unsigned int *firstTab, unsigned int *secondTab, int tabSize)
+{
+    for(int i = 0; i<tabSize; i++)
+    {
+        if (firstTab[p] != secondTab[p])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/*****************************/
+/*    printResult is used for
+/*    printing the results   
+/*****************************/
+void printResult(unsigned int *res, int threadNb, unsigned int Size )
 {
     printf("Result for %d threads: [", threadNb);
     for (int i = 0; i < Size; i++)
     {
         printf("%d", res[i]);
-        if (i != Size - 1)
-        {
+        if (i != Size - 1){
             printf("|");
+        }
+
+        if (i == Size - 1){
+            print("]\n");
         }
     }
 }
 
-//Cleaning the histogram by putting 0's in it
+/*****************************/
+/*    cleanHisto when finish (all the columns to 0)    
+/*****************************/
 __global__ static void cleanHisto(unsigned int *histo, unsigned int binSize)
 {
     for (int i = threadIdx.x; i < binSize; i += blockDim.x)
@@ -89,8 +110,9 @@ __global__ static void cleanHisto(unsigned int *histo, unsigned int binSize)
 
 }
 
-void wrapper(unsigned int dataSize, unsigned int binSize, int display, int threadNb, int blockCount)
+void wrapper(unsigned int dataSize, unsigned int binSize, int showData, int threadNb, int blockCount)
 {
+
     unsigned int *histo = NULL;
     unsigned int *histo_single = NULL;
     unsigned int *d_histo = NULL;
@@ -101,47 +123,39 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int display, int threa
     cudaEvent_t stop;
     cudaEvent_t stop_single;
 
-    // Defining the structures
     data = (unsigned int *)malloc(dataSize * sizeof(unsigned int));
     histo = (unsigned int *)malloc(binSize * sizeof(unsigned int));
     histo_single = (unsigned int *)malloc(binSize * sizeof(unsigned int));
-
-    // Generate data set on the host
-    printf("Generation of data sets randomly.\n");
-    srand(time(NULL));
+    //generating some data
     srand(time(NULL));
     for (int i = 0; i < dataSize; i++){
         data[i] = rand() % binSize;
     }
     printf("Done\n");
 
-    // Print the input if it was asked while lauching the program
-    if (display == 1)
+    //showing the data if the user wants to see it
+    if (showData == 1)
     {
-        Data(data, dataSize);
+        printData(data, dataSize);
     }
 
-    // Allocating memory
     checkCudaErrors(cudaMalloc((void **)&d_histo, sizeof(unsigned int) * binSize));
     checkCudaErrors(cudaMalloc((void **)&d_data, sizeof(unsigned int) * dataSize));
 
-    // Copy the data to the device
     checkCudaErrors(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
 
-    // Record the start event
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
     checkCudaErrors(cudaEventRecord(start, NULL));
 
-    // Launch the kernel
+    //lauching the kernel with multiple thread
     histogram<<<blockCount, threadNb,sizeof(unsigned int) * binSize>>>(d_data, d_histo, dataSize, binSize);
     cudaDeviceSynchronize();
 
-    // Fetch the result from device to host into histo
     printf("End of the kernel, fetching the results :\n");
     checkCudaErrors(cudaMemcpy(histo, d_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
-    // Record the stop event and wait for the stop event to complete
+    //creatiion of events for time measuring
     checkCudaErrors(cudaEventRecord(stop, NULL));
     checkCudaErrors(cudaEventSynchronize(stop));
 
@@ -149,15 +163,14 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int display, int threa
     checkCudaErrors(cudaEventCreate(&stop_single));
     checkCudaErrors(cudaEventRecord(start_single, NULL));
 
-    // Clean the first histogram as I re-use it afterwards
+    //cleaning the histogram
     cleanHisto<<<1, threadNb>>>(d_histo, binSize);
     cudaDeviceSynchronize();
 
-    // Launch the kernel on a single thread
+    //lauching the kernel for a single thread for comparaison
     histogram<<<1, 1,sizeof(unsigned int) * binSize>>>(d_data, d_histo, dataSize, binSize);
     cudaDeviceSynchronize();
 
-    // Fetch the result of the last kernel onto the host
     checkCudaErrors(cudaMemcpy(histo_single, d_histo, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaEventRecord(stop_single, NULL));
     checkCudaErrors(cudaEventSynchronize(stop_single));
@@ -169,19 +182,20 @@ void wrapper(unsigned int dataSize, unsigned int binSize, int display, int threa
     double gigaFlops_single = (dataSize * 1.0e-9f) / (msecTotal_single / 1000.0f);
 
     // Print the histograms if the parameter
-    if (display == 1)
+    if (showData == 1)
     {
-        result(histo, threadNb, binSize);
-        result(histo_single, 1, binSize);
+        printResult(histo, threadNb, binSize);
+        printResult(histo_single, 1, binSize);
     }
-    // Compare the results of the two histograms
-    if (compare(histo, histo_single, binSize))
+
+    // compareHistograms the results of the two histograms
+    if (compareHistograms(histo, histo_single, binSize))
     {
-        printf("All good ! Histograms match\n");
+        printf("histograms matched");
     }
     else
     {
-        printf("Wrong ! Histograms don't match\n");
+        printf("Something went wrong the histograms doesn't matched !!");
     }
     // Print performances
     printf("%d threads :\nCuda processing time = %.3fms, \n Perf = %.3f Gflops\n",threadNb, msecTotal, gigaFlops);
