@@ -7,7 +7,12 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 16
+#define MAX_BINS 4096
+#define MAX_BINS_SIZE 256
+
+
+
+
 /*****************************/
 /*    printData is used for
 /*    printing the generated data   
@@ -46,7 +51,10 @@ __global__ static void histogram(unsigned int *input, unsigned int *histo, unsig
     
     for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-        atomicAdd(&sharedHist[input[counterFill]], 1);
+        if(input[counterFill] < MAX_BINS_SIZE){
+            atomicAdd(&sharedHist[input[counterFill]], 1);
+        }
+
     }
     __syncthreads();
     
@@ -209,7 +217,7 @@ int main(int argc, char **argv)
 {
     int print = 0;
     unsigned int binSize = MAX_BINS;
-    unsigned long long ds = 256;
+    unsigned long long input_dataSize = 0;
 
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
@@ -217,31 +225,37 @@ int main(int argc, char **argv)
     // retrieve device
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&cudaprop, dev);
+
+    smCount = prop.multiProcessorCount;
+    warpSize = prop.warpSize;
+    
     //Retrieving parameters
     if (checkCmdLineFlag(argc, (const char **)argv, "size"))
     {
         getCmdLineArgumentString(argc, (const char **)argv, "size", &dataSize);
-        ds = atoll(dataSize);
+        input_dataSize = atoll(dataSize);
     }
     if (checkCmdLineFlag(argc, (const char **)argv, "displayData"))
     {
         print = 1;
     }
 
-    printf("Data Size is: %d \n", ds);
+    printf("Data Size is: %d \n", input_dataSize);
     //Max is 2^32 as asked
-    if (ds >= 4294967296 || ds == 0) {
+    if (input_dataSize >= 4294967296 || input_dataSize == 0) {
         printf("Error: Data size > 4,294,967,296");
         exit(EXIT_FAILURE);
     }
-    //Defining the number of threads to follow the need (ds) with max value 256 (multiple of 32) and < 1024
-    int nbThread = min((int)ds, 256);
+
+
+    int nbThread = min((int)input_dataSize, 1024);
     printf("nb thread: %d \n", nbThread);
-    //Defining the number of blocks to follow the need (if ds = 500 only 2 blocks) with max value a multiple of 30
-    int nbBlock =  min(((int)ds/256),18000);
-    //if the data size is below 256 we still have to have atleast 1 block
+    //my number of block depends of the input because if the nb of thread is <1024 there will be only one blocks, in contrary if it is
+    // > 1024 then the number of blocks will depend of the input with the maximum size of 18000
+    int nbBlock =  min(((int)input_dataSize/nbThread),18000);
+
     if (nbBlock == 0) nbBlock = 1;
     printf("nbblock: %d \n", nbBlock);
-    wrapper(ds, binSize, print, nbThread, nbBlock);
+    wrapper(input_dataSize, binSize, print, nbThread, nbBlock);
     return EXIT_SUCCESS;
 }
