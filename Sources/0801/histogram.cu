@@ -7,7 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 4096
+#define MAX_BINS 16 
 #define MAX_BINS_SIZE 256
 
 
@@ -51,9 +51,9 @@ __global__ static void histogram(unsigned int *input, unsigned int *histo, unsig
     
     for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-        if(input[counterFill] < MAX_BINS_SIZE){
+       // if(sharedHist[input[counterFill]] < MAX_BINS_SIZE){
             atomicAdd(&sharedHist[input[counterFill]], 1);
-        }
+       // }
 
     }
     __syncthreads();
@@ -219,6 +219,7 @@ int main(int argc, char **argv)
     unsigned int binSize = MAX_BINS;
     unsigned long long input_dataSize = 0;
 
+    int smCount;
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
 
@@ -226,8 +227,7 @@ int main(int argc, char **argv)
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&cudaprop, dev);
 
-    smCount = prop.multiProcessorCount;
-    warpSize = prop.warpSize;
+    smCount = cudaprop.multiProcessorCount;
     
     //Retrieving parameters
     if (checkCmdLineFlag(argc, (const char **)argv, "size"))
@@ -252,7 +252,7 @@ int main(int argc, char **argv)
     printf("nb thread: %d \n", nbThread);
     //my number of block depends of the input because if the nb of thread is <1024 there will be only one blocks, in contrary if it is
     // > 1024 then the number of blocks will depend of the input with the maximum size of 18000
-    int nbBlock =  min(((int)input_dataSize/nbThread),18000);
+    int nbBlock =  min(((int)input_dataSize/nbThread),100*smCount);
 
     if (nbBlock == 0) nbBlock = 1;
     printf("nbblock: %d \n", nbBlock);
