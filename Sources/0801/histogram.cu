@@ -7,7 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 4096
+#define MAX_BINS 16 
 #define MAX_BINS_SIZE 256
 
 
@@ -51,9 +51,9 @@ __global__ static void histogram(unsigned int *input, unsigned int *histo, unsig
     
     for (int counterFill = th; counterFill < dataSize; counterFill += blockDim.x * gridDim.x)
     {
-        if(input[counterFill] < MAX_BINS_SIZE){
+       // if(sharedHist[input[counterFill]] < MAX_BINS_SIZE){
             atomicAdd(&sharedHist[input[counterFill]], 1);
-        }
+       // }
 
     }
     __syncthreads();
@@ -219,6 +219,7 @@ int main(int argc, char **argv)
     unsigned int binSize = MAX_BINS;
     unsigned long long input_dataSize = 0;
 
+    int smCount;
     char *dataSize = NULL;
     cudaDeviceProp cudaprop;
 
@@ -226,8 +227,7 @@ int main(int argc, char **argv)
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&cudaprop, dev);
 
-    smCount = prop.multiProcessorCount;
-    warpSize = prop.warpSize;
+    smCount = cudaprop.multiProcessorCount;
     
     //Retrieving parameters
     if (checkCmdLineFlag(argc, (const char **)argv, "size"))
